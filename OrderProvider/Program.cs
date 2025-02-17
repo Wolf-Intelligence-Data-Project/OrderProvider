@@ -1,10 +1,11 @@
 using Microsoft.EntityFrameworkCore;
-using OrderProvider.Data;
-using OrderProvider.Queues;
-using OrderProvider.Repositories;
-using OrderProvider.Services;
-using Stripe;
-using System.Configuration;
+using OrderProvider.Core.Interfaces.Repositories;
+using OrderProvider.Core.Interfaces.Services;
+using OrderProvider.Core.Repositories;
+using OrderProvider.Core.Services;
+using OrderProvider.Messaging.AzureServiceBus;
+using OrderProvider.Persistence.Data;
+using Azure.Messaging.ServiceBus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,13 +17,30 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<OrderDbContext>(options =>
-        options.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddScoped<OrderRepository>();
-builder.Services.AddScoped<CartRepository>();
-builder.Services.AddScoped<ProductRepository>();
-builder.Services.AddScoped<OrderService>();
-builder.Services.AddScoped<CartService>();
-builder.Services.AddScoped<QueueService>();
+        options.UseSqlServer(builder.Configuration.GetConnectionString("OrderDatabase")));
+
+// Register repositories
+builder.Services.AddScoped<ICartRepository, CartRepository>();
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+
+// Register services
+builder.Services.AddScoped<ICartService, CartService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IBulkProductUpdateService, BulkProductUpdateService>();
+
+// Register IAzureServiceBusPublisher and its implementation
+builder.Services.AddScoped<IAzureServiceBusPublisher, AzureServiceBusPublisher>();
+
+// Register HttpClient for IPaymentService
+builder.Services.AddHttpClient();
+
+// Register Azure Service Bus Client
+builder.Services.AddSingleton<ServiceBusClient>(serviceProvider =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("AzureServiceBusConnectionString");
+    return new ServiceBusClient(connectionString);
+});
 
 var app = builder.Build();
 
