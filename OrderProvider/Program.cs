@@ -1,46 +1,29 @@
 using Microsoft.EntityFrameworkCore;
-using OrderProvider.Core.Interfaces.Repositories;
-using OrderProvider.Core.Interfaces.Services;
-using OrderProvider.Core.Repositories;
-using OrderProvider.Core.Services;
-using OrderProvider.Messaging.AzureServiceBus;
-using OrderProvider.Persistence.Data;
 using Azure.Messaging.ServiceBus;
-
+using OrderProvider.Interfaces.Repositories;
+using OrderProvider.Interfaces.Services;
+using OrderProvider.Services;
+using OrderProvider.Repositories;
+using OrderProvider.Data;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Configure Database
 builder.Services.AddDbContext<OrderDbContext>(options =>
-        options.UseSqlServer(builder.Configuration.GetConnectionString("OrderDatabase")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("OrderDatabase")));
 
-// Register repositories
-builder.Services.AddScoped<ICartRepository, CartRepository>();
+// Register Repositories
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
 
-// Register services
-builder.Services.AddScoped<ICartService, CartService>();
+// Register Services
 builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IPaymentService, PaymentService>();
-builder.Services.AddScoped<IBulkProductUpdateService, BulkProductUpdateService>();
 
-// Register IAzureServiceBusPublisher and its implementation
-builder.Services.AddScoped<IAzureServiceBusPublisher, AzureServiceBusPublisher>();
-
-// Register HttpClient for IPaymentService
-builder.Services.AddHttpClient();
-
-// Register Azure Service Bus Client
-builder.Services.AddSingleton<ServiceBusClient>(serviceProvider =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("AzureServiceBusConnectionString");
-    return new ServiceBusClient(connectionString);
-});
+builder.Services.AddSingleton<IRabbitMQService, RabbitMQService>(); // RabbitMQ for local dev
 
 var app = builder.Build();
 
@@ -52,9 +35,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
