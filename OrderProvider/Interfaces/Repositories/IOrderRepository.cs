@@ -1,6 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
-using OrderProvider.Entities;
+﻿using OrderProvider.Entities;
 
 namespace OrderProvider.Interfaces.Repositories
 {
@@ -8,5 +6,7 @@ namespace OrderProvider.Interfaces.Repositories
     {
         Task<OrderEntity> GetOrderByIdAsync(Guid orderId);
         Task<Guid> CreateOrderAsync(OrderEntity order);
+        Task<List<OrderEntity>> GetOrdersByUserIdAsync(Guid userId);  // Added this method
+        Task<List<OrderEntity>> GetAllOrdersAsync();  // Added this method
     }
 }

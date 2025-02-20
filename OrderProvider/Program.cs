@@ -5,6 +5,7 @@ using OrderProvider.Interfaces.Services;
 using OrderProvider.Services;
 using OrderProvider.Repositories;
 using OrderProvider.Data;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -23,7 +24,17 @@ builder.Services.AddScoped<IProductRepository, ProductRepository>();
 // Register Services
 builder.Services.AddScoped<IOrderService, OrderService>();
 
-builder.Services.AddSingleton<IRabbitMQService, RabbitMQService>(); // RabbitMQ for local dev
+// Register the HttpClient factory
+builder.Services.AddHttpClient();  // This is the key line
+
+builder.Services.AddScoped<IRabbitMqService, RabbitMqService>();
+
+// Register IPaymentService and its implementation
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+
+// Register the invoice and file provider services
+builder.Services.AddScoped<IInvoiceProviderService, InvoiceProviderService>();
+builder.Services.AddScoped<IFileProviderService, FileProviderService>();
 
 var app = builder.Build();
 

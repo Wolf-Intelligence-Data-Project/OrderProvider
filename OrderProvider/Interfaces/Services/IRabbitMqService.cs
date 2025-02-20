@@ -1,7 +1,12 @@
-﻿namespace OrderProvider.Interfaces.Services
+﻿using OrderProvider.Entities;
+using OrderProvider.ServiceBus;
+
+namespace OrderProvider.Interfaces.Services
 {
     public interface IRabbitMqService
     {
-        Task HandleEventAsync<T>(T @event) where T : class;
+        void PublishProductUpdate(List<ProductEntity> updatedProducts);
+        void PublishInvoiceEvent(InvoiceEvent invoiceEvent);
+        void PublishFileEvent(FileEvent fileEvent);
     }
 }

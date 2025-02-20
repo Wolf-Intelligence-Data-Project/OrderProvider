@@ -1,11 +1,11 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using OrderProvider.Entities;
 
 namespace OrderProvider.Interfaces.Services
 {
     public interface IOrderService
     {
-        Task<Guid> CreateOrderAsync(Guid userId);
-        Task<bool> CompleteOrderAsync(Guid orderId);
+        Task<Guid> CreateOrderAsync(Guid userId, string filtersUsed);
+        Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId);
+        Task<List<OrderEntity>> GetAllOrderHistoryAsync();
     }
 }

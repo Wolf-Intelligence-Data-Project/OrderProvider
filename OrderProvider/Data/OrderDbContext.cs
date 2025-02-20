@@ -17,7 +17,12 @@ namespace OrderProvider.Data
         {
             modelBuilder.Entity<OrderEntity>()
                 .Property(o => o.TotalPrice)
-                .HasColumnType("decimal(18, 2)"); // Define column type with precision and scale
+                .HasColumnType("decimal(18, 2)"); // TotalPrice column
+
+            // Add the same for PricePerProductAtPurchase
+            modelBuilder.Entity<OrderEntity>()
+                .Property(o => o.PricePerProductAtPurchase)
+                .HasColumnType("decimal(18, 2)"); // Define the column type with precision and scale
 
             base.OnModelCreating(modelBuilder);
         }
