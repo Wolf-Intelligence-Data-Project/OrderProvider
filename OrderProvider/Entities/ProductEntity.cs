@@ -4,7 +4,7 @@ namespace OrderProvider.Entities
 {
     public class ProductEntity
     {
-        public Guid Id { get; set; }
+        public Guid ProductId { get; set; }
         public string CompanyName { get; set; }
         public string OrganizationNumber { get; set; }
         public string Address { get; set; }

@@ -82,7 +82,7 @@ namespace OrderProvider.Repositories
                         {
                             await connection.ExecuteAsync(sql, new
                             {
-                                product.Id,
+                                product.ProductId,
                                 product.SoldUntil,
                                 product.SoldTo
                             }, transaction);
