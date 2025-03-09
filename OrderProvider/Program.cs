@@ -8,7 +8,7 @@ using OrderProvider.Data;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
-using OrderProvider.Models;
+using OrderProvider.Models.Settings;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -106,7 +106,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 // Register the HttpClient factory
 builder.Services.AddHttpClient();  // This is the key line
 
-builder.Services.AddScoped<IRabbitMqService, RabbitMqService>();
+builder.Services.AddScoped<IRabbitMQService, RabbitMqService>();
 
 // Register IPaymentService and its implementation
 builder.Services.AddScoped<IPaymentService, PaymentService>();

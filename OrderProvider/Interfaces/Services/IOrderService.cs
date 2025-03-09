@@ -10,5 +10,7 @@ namespace OrderProvider.Interfaces.Services
         Task CreateOrderAsync(OrderRequest orderRequest);
         Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId);
         Task<List<OrderEntity>> GetAllOrderHistoryAsync();
+
+        Task RevertOrderAsync(Guid CustomerId, Guid OrderId);
     }
 }

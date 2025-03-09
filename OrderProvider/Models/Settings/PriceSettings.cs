@@ -1,4 +1,4 @@
-﻿namespace OrderProvider.Models;
+﻿namespace OrderProvider.Models.Settings;
 
 
 public class PriceSettings

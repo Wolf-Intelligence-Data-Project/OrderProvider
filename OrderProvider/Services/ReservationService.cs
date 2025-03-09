@@ -3,10 +3,10 @@ using OrderProvider.Data;
 using OrderProvider.Factories;
 using OrderProvider.Interfaces.Repositories;
 using OrderProvider.Interfaces.Services;
-using OrderProvider.Models;
 using OrderProvider.Models.DTOs;
 using OrderProvider.Models.Enums;
 using OrderProvider.Models.Requests;
+using OrderProvider.Models.Settings;
 using System.ComponentModel;
 
 namespace OrderProvider.Services;

@@ -1,12 +1,7 @@
-﻿using OrderProvider.Entities;
-using OrderProvider.ServiceBus;
+﻿namespace OrderProvider.Interfaces.Services;
 
-namespace OrderProvider.Interfaces.Services
+public interface IRabbitMQService
 {
-    public interface IRabbitMqService
-    {
-        void PublishProductUpdate(List<ProductEntity> updatedProducts);
-        void PublishInvoiceEvent(InvoiceEvent invoiceEvent);
-        void PublishFileEvent(FileEvent fileEvent);
-    }
+    Task SendMessageAsync(string message, string queueName);
+    Task<string> ReceiveMessageAsync(string queueName);
 }

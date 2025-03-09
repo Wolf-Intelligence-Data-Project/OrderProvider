@@ -2,11 +2,9 @@
 using OrderProvider.Interfaces.Repositories;
 using OrderProvider.Interfaces.Services;
 using OrderProvider.Models.Requests;
-using OrderProvider.ServiceBus;
-using OrderProvider.Models;
 using Microsoft.Extensions.Options;
 using OrderProvider.Data;
-using Microsoft.EntityFrameworkCore;
+using OrderProvider.Models.Settings;
 
 namespace OrderProvider.Services;
 
@@ -15,10 +13,7 @@ public class OrderService : IOrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IProductRepository _productRepository;
     private readonly IReservationRepository _reservationRepository;
-    private readonly IPaymentService _paymentService;
-    private readonly IInvoiceProviderService _invoiceProviderService;
-    private readonly IFileProviderService _fileProviderService;
-    private readonly IRabbitMqService _rabbitMqService;
+    private readonly IRabbitMQService _rabbitMQService;
     private readonly IOptions<PriceSettings> _priceSettings;
     private readonly ILogger<OrderService> _logger;
     private readonly ProductDbContext _productDbContext;
@@ -26,10 +21,7 @@ public class OrderService : IOrderService
         IOrderRepository orderRepository,
         IProductRepository productRepository,
         IReservationRepository reservationRepository,
-        IPaymentService paymentService,
-        IInvoiceProviderService invoiceProviderService,
-        IFileProviderService fileProviderService,
-        IRabbitMqService rabbitMqService,
+        IRabbitMQService rabbitMQService,
         ILogger<OrderService> logger,
         IOptions<PriceSettings> priceSettings,
         ProductDbContext context)
@@ -39,10 +31,7 @@ public class OrderService : IOrderService
         _orderRepository = orderRepository;
         _productRepository = productRepository;
         _reservationRepository = reservationRepository;
-        _paymentService = paymentService;
-        _invoiceProviderService = invoiceProviderService;
-        _fileProviderService = fileProviderService;
-        _rabbitMqService = rabbitMqService;
+        _rabbitMQService = rabbitMQService;
         _priceSettings = priceSettings;
         _logger = logger;
         _productDbContext = context;
@@ -84,11 +73,10 @@ public class OrderService : IOrderService
 
             // Update Product Table (Set ReservedUntil = NULL, SoldUntil = 30 days from now)
             var stockholmTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
-           
             await _productRepository.ProductSoldAsync(orderRequest.CustomerId);
+
             // Update Reservation Table (Set ReservedFrom = NULL, SoldFrom = NOW)
             await _reservationRepository.UpdateToSoldAsync(reservation.ReservationId);
-
 
             // Calculate price
             decimal pricePerProduct = _priceSettings.Value.PricePerProduct;
@@ -111,6 +99,21 @@ public class OrderService : IOrderService
             await _orderRepository.CreateOrderAsync(order);
             _logger.LogInformation("Order successfully created for CustomerId: {CustomerId} with OrderId: {OrderId}",
                 orderRequest.CustomerId, order.Id);
+
+            // Send message to FileGeneration queue
+            await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "file-generation-queue");
+            _logger.LogInformation("Sent message to FileGeneration queue for OrderId: {OrderId}", order.Id);
+
+            // Send message to InvoiceGeneration queue
+            await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "invoice-generation-queue");
+            _logger.LogInformation("Sent message to InvoiceGeneration queue for OrderId: {OrderId}", order.Id);
+
+            // If the payment is confirmed, send message to PaymentConfirmation queue
+            if (orderRequest.IsPayed)
+            {
+                await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "payment-confirmed");
+                _logger.LogInformation("Payment confirmed for OrderId: {OrderId}, message sent to PaymentConfirmation queue.", order.Id);
+            }
         }
         catch (Exception ex)
         {
@@ -118,6 +121,21 @@ public class OrderService : IOrderService
         }
     }
 
+    public async Task RevertOrderAsync(Guid CustomerId, Guid OrderId)
+    {
+        try
+        {
+            _logger.LogWarning("Reverting order creation for CustomerId: {CustomerId}", CustomerId);
+
+            // Revert logic here
+
+            _logger.LogInformation("Order reverted successfully for the order: ", OrderId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while reverting order for CustomerId: {CustomerId}", CustomerId);
+        }
+    }
     public async Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId)
     {
         return await _orderRepository.GetOrdersByUserIdAsync(userId);

@@ -1,7 +1,7 @@
-﻿namespace OrderProvider.Models.DTOs;
+﻿//namespace OrderProvider.Models.DTOs;
 
-public class SoldDto
-{
-    public Guid CustomerId { get; set; }
-    public DateTime? SoldUntil { get; set; }
-}
+//public class SoldDto
+//{
+//    public Guid CustomerId { get; set; }
+//    public DateTime? SoldUntil { get; set; }
+//}
