@@ -1,4 +1,4 @@
-﻿using OrderProvider.Models;
+﻿using OrderProvider.Models.Responses;
 
 namespace OrderProvider.Interfaces.Services
 {

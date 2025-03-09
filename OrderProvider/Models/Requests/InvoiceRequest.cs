@@ -1,8 +1,8 @@
 ﻿using System;
 
-namespace OrderProvider.Models
+namespace OrderProvider.Models.Requests
 {
-    public class InvoiceRequestDto
+    public class InvoiceRequest
     {
         public Guid OrderId { get; set; }
         public Guid UserId { get; set; }

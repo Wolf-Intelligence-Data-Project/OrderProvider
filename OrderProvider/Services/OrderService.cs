@@ -1,100 +1,130 @@
 ﻿using OrderProvider.Entities;
 using OrderProvider.Interfaces.Repositories;
 using OrderProvider.Interfaces.Services;
+using OrderProvider.Models.Requests;
 using OrderProvider.ServiceBus;
+using OrderProvider.Models;
+using Microsoft.Extensions.Options;
+using OrderProvider.Data;
+using Microsoft.EntityFrameworkCore;
 
-namespace OrderProvider.Services
+namespace OrderProvider.Services;
+
+public class OrderService : IOrderService
 {
-    public class OrderService : IOrderService
+    private readonly IOrderRepository _orderRepository;
+    private readonly IProductRepository _productRepository;
+    private readonly IReservationRepository _reservationRepository;
+    private readonly IPaymentService _paymentService;
+    private readonly IInvoiceProviderService _invoiceProviderService;
+    private readonly IFileProviderService _fileProviderService;
+    private readonly IRabbitMqService _rabbitMqService;
+    private readonly IOptions<PriceSettings> _priceSettings;
+    private readonly ILogger<OrderService> _logger;
+    private readonly ProductDbContext _productDbContext;
+    public OrderService(
+        IOrderRepository orderRepository,
+        IProductRepository productRepository,
+        IReservationRepository reservationRepository,
+        IPaymentService paymentService,
+        IInvoiceProviderService invoiceProviderService,
+        IFileProviderService fileProviderService,
+        IRabbitMqService rabbitMqService,
+        ILogger<OrderService> logger,
+        IOptions<PriceSettings> priceSettings,
+        ProductDbContext context)
+
+
     {
-        private readonly IOrderRepository _orderRepository;
-        private readonly IProductRepository _productRepository;
-        private readonly IPaymentService _paymentService;
-        private readonly IInvoiceProviderService _invoiceProviderService;
-        private readonly IFileProviderService _fileProviderService;
-        private readonly IRabbitMqService _rabbitMqService;
-        private decimal _currentPricePerProduct = 6m; // Will be updated via admin later
+        _orderRepository = orderRepository;
+        _productRepository = productRepository;
+        _reservationRepository = reservationRepository;
+        _paymentService = paymentService;
+        _invoiceProviderService = invoiceProviderService;
+        _fileProviderService = fileProviderService;
+        _rabbitMqService = rabbitMqService;
+        _priceSettings = priceSettings;
+        _logger = logger;
+        _productDbContext = context;
+    }
 
-        public OrderService(
-            IOrderRepository orderRepository,
-            IProductRepository productRepository,
-            IPaymentService paymentService,
-            IInvoiceProviderService invoiceProviderService,
-            IFileProviderService fileProviderService,
-            IRabbitMqService rabbitMqService)
+    //public async Task<ReservationDto> GetReservationAsync(OrderRequest orderRequest)
+    //{
+    //    var reservationId = orderRequest.ReservationId;
+
+    //    if (reservationId == Guid.Empty)
+    //    {
+    //        return null;
+    //    }
+
+    //    var reservation = await _productRepository.GetReservationByIdAsync(reservationId);
+
+    //    if (reservation == null)
+    //    {
+    //        return null;
+    //    }
+
+    //    return ReservationFactory.CreateReservationDto(reservation);
+    //}
+
+    public async Task CreateOrderAsync(OrderRequest orderRequest)
+    {
+        try
         {
-            _orderRepository = orderRepository;
-            _productRepository = productRepository;
-            _paymentService = paymentService;
-            _invoiceProviderService = invoiceProviderService;
-            _fileProviderService = fileProviderService;
-            _rabbitMqService = rabbitMqService;
-        }
+            // Get reservation details
+            var reservation = await _reservationRepository.GetReservationByCustomerIdAsync(orderRequest.CustomerId);
+            if (reservation == null)
+            {
+                _logger.LogWarning("No reservation found for CustomerId: {CustomerId}", orderRequest.CustomerId);
+                return;
+            }
 
-        public async Task<Guid> CreateOrderAsync(Guid userId, string filtersUsed)
-        {
-            var reservedProducts = await _productRepository.GetReservedProductsByUserIdAsync(userId);
-            if (!reservedProducts.Any()) throw new InvalidOperationException("No reserved products found.");
+            _logger.LogInformation("Found reservation for CustomerId: {CustomerId} with ReservationId: {ReservationId}",
+                orderRequest.CustomerId, reservation.ReservationId);
 
-            int quantity = reservedProducts.Count;
-            decimal totalPrice = quantity * _currentPricePerProduct;
+            // Update Product Table (Set ReservedUntil = NULL, SoldUntil = 30 days from now)
+            var stockholmTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
+           
+            await _productRepository.ProductSoldAsync(orderRequest.CustomerId);
+            // Update Reservation Table (Set ReservedFrom = NULL, SoldFrom = NOW)
+            await _reservationRepository.UpdateToSoldAsync(reservation.ReservationId);
 
-            var paymentResult = await _paymentService.ProcessPaymentAsync(userId, totalPrice);
-            if (!paymentResult.Success) throw new InvalidOperationException("Payment failed.");
 
+            // Calculate price
+            decimal pricePerProduct = _priceSettings.Value.PricePerProduct;
+            decimal vatRate = _priceSettings.Value.VatRate;
+            decimal totalPrice = reservation.Quantity * pricePerProduct * (1 + vatRate / 100);
+
+            // Create Order in another database
             var order = new OrderEntity
             {
                 Id = Guid.NewGuid(),
-                UserId = userId,
-                CreatedAt = DateTime.UtcNow,
-                PricePerProductAtPurchase = _currentPricePerProduct,
-                Quantity = quantity,
+                UserId = orderRequest.CustomerId,
+                CreatedAt = stockholmTime,
+                PricePerProductAtPurchase = pricePerProduct,
+                Quantity = reservation.Quantity,
                 TotalPrice = totalPrice,
-                PaymentStatus = "Completed",
-                FiltersUsed = filtersUsed
+                PaymentStatus = orderRequest.IsPayed ? "Paid" : "Pending",
+                FiltersUsed = reservation.ReservationId
             };
 
             await _orderRepository.CreateOrderAsync(order);
-
-            // Publish to RabbitMQ (InvoiceProvider)
-            var invoiceEvent = new InvoiceEvent
-            {
-                OrderId = order.Id,
-                UserId = userId,
-                TotalPrice = totalPrice
-            };
-            _rabbitMqService.PublishInvoiceEvent(invoiceEvent);
-
-            // Publish to RabbitMQ (FileProvider)
-            var fileEvent = new FileEvent
-            {
-                UserId = userId,
-                OrderId = order.Id
-            };
-            _rabbitMqService.PublishFileEvent(fileEvent);
-
-            foreach (var product in reservedProducts)
-            {
-                product.ReservedUntil = null;
-                product.ReservedBy = null;
-                product.SoldUntil = DateTime.UtcNow.AddDays(30);
-                product.SoldTo = userId;
-            }
-
-            await _productRepository.BulkUpdateProductsAsync(reservedProducts);
-            _rabbitMqService.PublishProductUpdate(reservedProducts);
-
-            return order.Id;
+            _logger.LogInformation("Order successfully created for CustomerId: {CustomerId} with OrderId: {OrderId}",
+                orderRequest.CustomerId, order.Id);
         }
-
-        public async Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId)
+        catch (Exception ex)
         {
-            return await _orderRepository.GetOrdersByUserIdAsync(userId);
+            _logger.LogError(ex, "Error processing order for CustomerId: {CustomerId}", orderRequest.CustomerId);
         }
+    }
 
-        public async Task<List<OrderEntity>> GetAllOrderHistoryAsync()
-        {
-            return await _orderRepository.GetAllOrdersAsync();
-        }
+    public async Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId)
+    {
+        return await _orderRepository.GetOrdersByUserIdAsync(userId);
+    }
+
+    public async Task<List<OrderEntity>> GetAllOrderHistoryAsync()
+    {
+        return await _orderRepository.GetAllOrdersAsync();
     }
 }

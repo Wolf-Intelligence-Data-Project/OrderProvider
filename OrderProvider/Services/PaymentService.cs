@@ -1,5 +1,5 @@
 ﻿using OrderProvider.Interfaces.Services;
-using OrderProvider.Models;
+using OrderProvider.Models.Responses;
 
 namespace OrderProvider.Services
 {
@@ -14,13 +14,14 @@ namespace OrderProvider.Services
 
         public async Task<PaymentResponse> ProcessPaymentAsync(Guid userId, decimal amount)
         {
-            var response = await _httpClient.PostAsJsonAsync("https://klarna/api/payments", new
-            {
-                UserId = userId,
-                Amount = amount
-            });
+            //var response = await _httpClient.PostAsJsonAsync("https://klarna/api/payments", new
+            //{
+            //    UserId = userId,
+            //    Amount = amount
+            //});
 
-            return await response.Content.ReadFromJsonAsync<PaymentResponse>();
+            //return await response.Content.ReadFromJsonAsync<PaymentResponse>();
+            return new PaymentResponse();
         }
     }
 

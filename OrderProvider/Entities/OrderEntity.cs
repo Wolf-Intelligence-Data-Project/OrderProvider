@@ -4,11 +4,11 @@
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public decimal PricePerProductAtPurchase { get; set; }  // Price per product at the time of order
-        public int Quantity { get; set; }  // Number of unique products in the order
+        public DateTime CreatedAt { get; set; } = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
+        public decimal PricePerProductAtPurchase { get; set; }
+        public int Quantity { get; set; }
         public decimal TotalPrice { get; set; }
         public string PaymentStatus { get; set; } = "Pending";
-        public string FiltersUsed { get; set; }  // JSON or string describing filters applied
+        public Guid FiltersUsed { get; set; }  
     }
 }

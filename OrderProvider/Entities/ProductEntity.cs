@@ -17,8 +17,7 @@ namespace OrderProvider.Entities
         public int NumberOfEmployees { get; set; }
         public string CEO { get; set; }
         public DateTime? SoldUntil { get; set; }  // When the product is no longer available
-        public Guid? SoldTo { get; set; }  // User ID who bought the product
+        public Guid? CustomerId { get; set; }  // User ID who bought the product
         public DateTime? ReservedUntil { get; set; }  // How long it’s reserved
-        public Guid? ReservedBy { get; set; }  // User ID who reserved the product
     }
 }
