@@ -1,21 +1,22 @@
 ﻿namespace OrderProvider.Factories;
 
+using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using OrderProvider.Entities;
 using OrderProvider.Models.DTOs;
 using OrderProvider.Models.Requests;
 
 public class ReservationFactory
 {
-    public static ReservationEntity CreateReservationEntity(ProductReserveRequest request)
+    public static ReservationEntity CreateReservationEntity(ProductReserveRequest request, Guid userId)
     {
         return new ReservationEntity
         {
+            CustomerId = userId,
             ReservationId = Guid.NewGuid(),
-            CustomerId = request.CompanyId,
             BusinessTypes = string.Join(",", request.BusinessTypes ?? new List<string>()),
             Regions = string.Join(",", request.Regions ?? new List<string>()),
-            Cities = request.Cities != null ? string.Join(",", request.Cities) : null,  // Separate Cities
-            CitiesByRegion = request.CitiesByRegion != null ? string.Join(",", request.CitiesByRegion) : null, // Separate CitiesByRegion
+            Cities = request.Cities != null ? string.Join(",", request.Cities) : null,
+            CitiesByRegion = request.CitiesByRegion != null ? string.Join(",", request.CitiesByRegion) : null,
             PostalCodes = string.Join(",", request.PostalCodes ?? new List<string>()),
             MinRevenue = request.MinRevenue,
             MaxRevenue = request.MaxRevenue,
@@ -26,6 +27,7 @@ public class ReservationFactory
             SoldFrom = null,
         };
     }
+
     public static ReservationDto CreateReservationDto(ReservationEntity reservation)
     {
         return new ReservationDto

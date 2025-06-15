@@ -20,48 +20,58 @@ public class OrderRepository : IOrderRepository
     }
     public async Task<OrderEntity> GetOrderByIdAsync(Guid orderId)
     {
-        return await _context.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
+        return await _context.Orders.FirstOrDefaultAsync(o => o.OrderId == orderId);
     }
 
-    //public async Task<Guid> CreateOrderAsync(OrderEntity order)
-    //{
-    //    _context.Orders.Add(order);
-    //    await _context.SaveChangesAsync();
-    //    return order.Id;
-    //}
-
-    public async Task<List<OrderEntity>> GetOrdersByUserIdAsync(Guid userId) // Implemented
+    public async Task<List<OrderEntity>> GetOrdersByUserIdAsync(Guid userId)
     {
-        return await _context.Orders.Where(o => o.UserId == userId).ToListAsync();
+        return await _context.Orders.Where(o => o.CustomerId == userId).ToListAsync();
     }
 
-    public async Task<List<OrderEntity>> GetAllOrdersAsync() // Implemented
+    public async Task<List<OrderEntity>> GetAllOrdersAsync()
     {
         return await _context.Orders.ToListAsync();
     }
 
     public async Task<bool> DeleteOrderAsync(Guid userId)
     {
-        // Find orders by UserId
         var orders = await _context.Orders
-                                   .Where(o => o.UserId == userId)
+                                   .Where(o => o.CustomerId == userId)
                                    .ToListAsync();
 
         if (orders == null || !orders.Any())
         {
-            // If no orders found, return false
             return false;
         }
 
-        // Remove the found orders from the context
         _context.Orders.RemoveRange(orders);
 
-        // Save the changes to the database
         var rowsAffected = await _context.SaveChangesAsync();
 
-        // If rowsAffected is greater than 0, the deletion was successful
+        return rowsAffected > 0;
+    }
+    public async Task<bool> DeleteUnpaidOrdersAsync(Guid userId)
+    {
+        var orders = await _context.Orders
+                                   .Where(o => o.CustomerId == userId && o.PaymentStatus != "Paid")
+                                   .ToListAsync();
+
+        if (orders == null || !orders.Any())
+        {
+            return false;
+        }
+
+        _context.Orders.RemoveRange(orders);
+
+        var rowsAffected = await _context.SaveChangesAsync();
+
         return rowsAffected > 0;
     }
 
-
+    public async Task<OrderEntity> UpdateOrderAsync(OrderEntity order)
+    {
+        _context.Orders.Update(order);
+        await _context.SaveChangesAsync();
+        return order;
+    }
 }

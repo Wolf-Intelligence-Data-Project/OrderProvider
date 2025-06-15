@@ -3,10 +3,9 @@ using OrderProvider.Models.Requests;
 
 namespace OrderProvider.Interfaces.Services;
 
-
 public interface IReservationService
 {
     Task<ReservationDto> ReserveProductsAsync(ProductReserveRequest request);
-    Task<ReservationDto> GetReservationByUserIdAsync(Guid companyId);
-    Task<bool> DeleteReservationNow(Guid companyId);
+    Task<ReservationDto> GetReservationByUserIdAsync();
+    Task<bool> DeleteReservationNow();
 }

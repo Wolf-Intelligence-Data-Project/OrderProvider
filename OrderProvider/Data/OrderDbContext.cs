@@ -1,30 +1,41 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using OrderProvider.Entities;
 
-namespace OrderProvider.Data
+namespace OrderProvider.Data;
+
+public class OrderDbContext : DbContext
 {
-    public class OrderDbContext : DbContext
+    public DbSet<OrderEntity> Orders { get; set; }
+    public DbSet<ReservationEntity> Reservations { get; set; } 
+
+    public OrderDbContext(DbContextOptions<OrderDbContext> options)
+        : base(options)
     {
-        public DbSet<OrderEntity> Orders { get; set; }
+    }
 
-        // Add the constructor that accepts DbContextOptions<OrderDbContext>
-        public OrderDbContext(DbContextOptions<OrderDbContext> options)
-            : base(options) // Pass the options to the base DbContext constructor
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDefaultSchema("dbo");
+
+        modelBuilder.Entity<OrderEntity>(entity =>
         {
-        }
+            entity.HasKey(o => o.OrderId); 
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+            entity.Property(o => o.TotalPriceWithoutVat)
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(o => o.PricePerProduct)
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(o => o.TotalPrice)
+                .HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<ReservationEntity>(entity =>
         {
-            modelBuilder.Entity<OrderEntity>()
-                .Property(o => o.TotalPrice)
-                .HasColumnType("decimal(18, 2)"); // TotalPrice column
+            entity.ToTable("Reservations", "dbo"); 
+        });
 
-            // Add the same for PricePerProductAtPurchase
-            modelBuilder.Entity<OrderEntity>()
-                .Property(o => o.PricePerProductAtPurchase)
-                .HasColumnType("decimal(18, 2)"); // Define the column type with precision and scale
-
-            base.OnModelCreating(modelBuilder);
-        }
+        base.OnModelCreating(modelBuilder);
     }
 }

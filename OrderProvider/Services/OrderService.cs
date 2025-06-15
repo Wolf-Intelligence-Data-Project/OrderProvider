@@ -5,6 +5,9 @@ using OrderProvider.Models.Requests;
 using Microsoft.Extensions.Options;
 using OrderProvider.Data;
 using OrderProvider.Models.Settings;
+using OrderProvider.Interfaces.Helpers;
+using System.Text;
+using System.Text.Json;
 
 namespace OrderProvider.Services;
 
@@ -13,15 +16,18 @@ public class OrderService : IOrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IProductRepository _productRepository;
     private readonly IReservationRepository _reservationRepository;
-    private readonly IRabbitMQService _rabbitMQService;
+    private readonly ITokenExtractor _tokenExtractor;
+    private readonly IConfiguration _configuration;
     private readonly IOptions<PriceSettings> _priceSettings;
     private readonly ILogger<OrderService> _logger;
     private readonly ProductDbContext _productDbContext;
+
     public OrderService(
         IOrderRepository orderRepository,
         IProductRepository productRepository,
         IReservationRepository reservationRepository,
-        IRabbitMQService rabbitMQService,
+        ITokenExtractor tokenExtractor,
+        IConfiguration configuration,
         ILogger<OrderService> logger,
         IOptions<PriceSettings> priceSettings,
         ProductDbContext context)
@@ -31,95 +37,171 @@ public class OrderService : IOrderService
         _orderRepository = orderRepository;
         _productRepository = productRepository;
         _reservationRepository = reservationRepository;
-        _rabbitMQService = rabbitMQService;
+        _tokenExtractor = tokenExtractor;
+        _configuration = configuration;
         _priceSettings = priceSettings;
         _logger = logger;
         _productDbContext = context;
     }
-
-    //public async Task<ReservationDto> GetReservationAsync(OrderRequest orderRequest)
-    //{
-    //    var reservationId = orderRequest.ReservationId;
-
-    //    if (reservationId == Guid.Empty)
-    //    {
-    //        return null;
-    //    }
-
-    //    var reservation = await _productRepository.GetReservationByIdAsync(reservationId);
-
-    //    if (reservation == null)
-    //    {
-    //        return null;
-    //    }
-
-    //    return ReservationFactory.CreateReservationDto(reservation);
-    //}
-
-    public async Task CreateOrderAsync(OrderRequest orderRequest)
+    private async Task<bool> PaymentTemporary(PaymentRequest paymentRequest)
     {
+        if (paymentRequest == null)
+            return false;
+
+        // Mock card
+
+        var testCard = new PaymentRequest
+        {
+            CardNumber = "1234123412341234",
+            CardExpiration = "1235",
+            CVV = "123"
+        };
+
+        bool isValid =
+            paymentRequest.CardNumber?.Replace(" ", "") == testCard.CardNumber &&  
+            paymentRequest.CardExpiration?.Replace(" ", "") == testCard.CardExpiration &&  
+            paymentRequest.CVV == testCard.CVV;
+
+        return await Task.FromResult(isValid);
+    }
+
+    public async Task<OrderEntity> CreateOrderAsync(PaymentRequest paymentRequest)
+    {
+        var customerId = _tokenExtractor.GetUserIdFromToken();
+
+        if (customerId == null)
+        {
+            _logger.LogWarning("Invalid or missing userId in cookie.");
+            return null;
+        }
+
         try
         {
-            // Get reservation details
-            var reservation = await _reservationRepository.GetReservationByCustomerIdAsync(orderRequest.CustomerId);
+            _logger.LogInformation("Payment Request received: CardNumber={CardNumber}, CardExpiration={CardExpiration}, CVV={CVV}",
+            paymentRequest.CardNumber, paymentRequest.CardExpiration, paymentRequest.CVV);
+
+            if (await PaymentTemporary(paymentRequest) != true)
+            {
+                _logger.LogError("Payment information is missing or invalid.");
+                return null;
+            }
+
+            string paymentStatus = "Payed";
+
+            var reservation = await _reservationRepository.GetReservationAsync(customerId);
             if (reservation == null)
             {
-                _logger.LogWarning("No reservation found for CustomerId: {CustomerId}", orderRequest.CustomerId);
-                return;
+                _logger.LogWarning("No reservation found for CustomerId: {CustomerId}", customerId);
+                return null;
             }
 
             _logger.LogInformation("Found reservation for CustomerId: {CustomerId} with ReservationId: {ReservationId}",
-                orderRequest.CustomerId, reservation.ReservationId);
+                customerId, reservation.ReservationId);
 
-            // Update Product Table (Set ReservedUntil = NULL, SoldUntil = 30 days from now)
-            var stockholmTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
-            await _productRepository.ProductSoldAsync(orderRequest.CustomerId);
+            await _productRepository.ProductSoldAsync(customerId);
 
-            // Update Reservation Table (Set ReservedFrom = NULL, SoldFrom = NOW)
-            await _reservationRepository.UpdateToSoldAsync(reservation.ReservationId);
+            int quantity = reservation.Quantity;
+            decimal pricePerProduct = 6;
+            decimal vatRate = 0.25m;
+            decimal totalPriceWithoutVat = quantity * pricePerProduct;
+            decimal totalPrice = totalPriceWithoutVat + (totalPriceWithoutVat * vatRate);
 
-            // Calculate price
-            decimal pricePerProduct = _priceSettings.Value.PricePerProduct;
-            decimal vatRate = _priceSettings.Value.VatRate;
-            decimal totalPrice = reservation.Quantity * pricePerProduct * (1 + vatRate / 100);
-
-            // Create Order in another database
             var order = new OrderEntity
             {
-                Id = Guid.NewGuid(),
-                UserId = orderRequest.CustomerId,
-                CreatedAt = stockholmTime,
-                PricePerProductAtPurchase = pricePerProduct,
-                Quantity = reservation.Quantity,
+                OrderId = Guid.NewGuid(),
+                CustomerId = customerId,
+                CustomerEmail = "dkomnenovic@ymail.com",
+                CreatedAt = TimeZoneInfo.ConvertTime(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm")),
+                PricePerProduct = pricePerProduct,
+                Quantity = quantity,
                 TotalPrice = totalPrice,
-                PaymentStatus = orderRequest.IsPayed ? "Paid" : "Pending",
+                TotalPriceWithoutVat = totalPriceWithoutVat,
+                PaymentStatus = paymentStatus,
                 FiltersUsed = reservation.ReservationId
             };
 
             await _orderRepository.CreateOrderAsync(order);
             _logger.LogInformation("Order successfully created for CustomerId: {CustomerId} with OrderId: {OrderId}",
-                orderRequest.CustomerId, order.Id);
+                customerId, order.OrderId);
 
-            // Send message to FileGeneration queue
-            await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "file-generation-queue");
-            _logger.LogInformation("Sent message to FileGeneration queue for OrderId: {OrderId}", order.Id);
+            await _reservationRepository.DeleteReservationImmediatelyAsync(reservation.ReservationId);
 
-            // Send message to InvoiceGeneration queue
-            await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "invoice-generation-queue");
-            _logger.LogInformation("Sent message to InvoiceGeneration queue for OrderId: {OrderId}", order.Id);
+            await SendOrderToAzureFunctionAsync(order);
 
-            // If the payment is confirmed, send message to PaymentConfirmation queue
-            if (orderRequest.IsPayed)
+            return order;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing order for CustomerId: {CustomerId}", customerId);
+            return null;
+        }
+    }
+
+    private async Task SendOrderToAzureFunctionAsync(OrderEntity order)
+    {
+        using (var client = new HttpClient())
+        {
+            var url = "http://localhost:7223/api/order-report";  // Local Azure Function URL
+            var jsonContent = JsonSerializer.Serialize(order);
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            try
             {
-                await _rabbitMQService.SendMessageAsync(order.Id.ToString(), "payment-confirmed");
-                _logger.LogInformation("Payment confirmed for OrderId: {OrderId}, message sent to PaymentConfirmation queue.", order.Id);
+                var response = await client.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Order sent to Azure function successfully.");
+                }
+                else
+                {
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning($"Failed to send order. Status: {response.StatusCode}. Content: {responseContent}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending order to Azure function.");
+            }
+        }
+    }
+
+
+    public async Task<bool> UpdatePaymentStatusAsync(string orderId, string paymentStatus, string klarnaPaymentId)
+    {
+        try
+        {
+            if (Guid.TryParse(orderId, out var orderGuid))
+            {
+                // Fetching the order from the database by the Klarna OrderId (Guid)
+                var order = await _orderRepository.GetOrderByIdAsync(orderGuid);
+                if (order == null)
+                {
+                    _logger.LogWarning("Order not found for OrderId: {OrderId}", orderId);
+                    return false;
+                }
+
+                order.PaymentStatus = paymentStatus;
+                order.KlarnaPaymentId = klarnaPaymentId; 
+
+                await _orderRepository.UpdateOrderAsync(order);
+
+                _logger.LogInformation("Payment status for OrderId: {OrderId} updated to {PaymentStatus}. Klarna PaymentId: {KlarnaPaymentId}.", orderId, paymentStatus, klarnaPaymentId);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("Invalid OrderId format: {OrderId}", orderId);
+                return false;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing order for CustomerId: {CustomerId}", orderRequest.CustomerId);
+            _logger.LogError(ex, "Error updating payment status for OrderId: {OrderId}", orderId);
+            return false;
         }
     }
+
 
     public async Task RevertOrderAsync(Guid CustomerId, Guid OrderId)
     {
@@ -127,7 +209,7 @@ public class OrderService : IOrderService
         {
             _logger.LogWarning("Reverting order creation for CustomerId: {CustomerId}", CustomerId);
 
-            // Revert logic here
+            // Placeholder for revert logic
 
             _logger.LogInformation("Order reverted successfully for the order: ", OrderId);
         }
@@ -136,8 +218,15 @@ public class OrderService : IOrderService
             _logger.LogError(ex, "Error occurred while reverting order for CustomerId: {CustomerId}", CustomerId);
         }
     }
-    public async Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId)
+    public async Task<List<OrderEntity>> GetUserOrderHistoryAsync()
     {
+        var userId = _tokenExtractor.GetUserIdFromToken();
+
+        if (userId == null)
+        {
+            _logger.LogWarning("Invalid or missing userId in cookie.");
+            return null;
+        }
         return await _orderRepository.GetOrdersByUserIdAsync(userId);
     }
 

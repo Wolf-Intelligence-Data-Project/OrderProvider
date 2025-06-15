@@ -1,6 +1,9 @@
 ﻿using System.ComponentModel;
 
 namespace OrderProvider.Models.Enums;
+
+// Custom made ENUM with SNI codes
+
 public enum BusinessType
 {
     [Description("Jordbruk och jakt samt service i anslutning härtill")]

@@ -11,12 +11,14 @@ namespace OrderProvider.Repositories;
 public class ProductRepository : IProductRepository
 {
     private readonly ProductDbContext _productDbContext;
-    private readonly string _connectionString;
+    private readonly string _productDbConnectionString;
+    private readonly string _reservationDbConnectionString;
     private readonly ILogger<ProductRepository> _logger;
-
+    private readonly DateTime _stockholmTime = TimeZoneInfo.ConvertTime(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
     public ProductRepository(IConfiguration configuration, ProductDbContext productDbContext, ILogger<ProductRepository> logger)
     {
-        _connectionString = configuration.GetConnectionString("ProductDatabase");
+        _productDbConnectionString = configuration.GetConnectionString("ProductDatabase");
+        _reservationDbConnectionString = configuration.GetConnectionString("OrderDatabase");
         _productDbContext = productDbContext;
         _logger = logger;
     }
@@ -27,39 +29,33 @@ public class ProductRepository : IProductRepository
                               .FirstOrDefaultAsync(r => r.ReservationId == reservationId);
     }
 
-
-    // Retrieves a product by its ID
     public async Task<ProductEntity> GetProductByIdAsync(Guid productId)
     {
-        using (var connection = new SqlConnection(_connectionString))
+        using (var connection = new SqlConnection(_productDbConnectionString))
         {
             await connection.OpenAsync();
 
-            // Ensure the schema is specified if necessary (e.g., dbo)
-            string sql = "SELECT * FROM dbo.Products WHERE Id = @ProductId"; // Changed to "Products"
+            string sql = "SELECT * FROM dbo.Products WHERE Id = @ProductId";
             try
             {
                 return await connection.QueryFirstOrDefaultAsync<ProductEntity>(sql, new { ProductId = productId });
             }
             catch (SqlException ex)
             {
-                // Log the error or handle it
                 throw new Exception("Database error occurred while retrieving product by ID", ex);
             }
         }
     }
 
-    // Retrieves all reserved products for a specific user
     public async Task<List<ProductEntity>> GetReservedProductsByUserIdAsync(Guid userId)
     {
-        using (var connection = new SqlConnection(_connectionString))
+        using (var connection = new SqlConnection(_productDbConnectionString))
         {
             await connection.OpenAsync();
 
-            // Ensure the schema is specified if necessary (e.g., dbo)
             string sql = @"
                     SELECT * FROM dbo.Products
-                    WHERE CustomerId = @UserId AND ReservedUntil IS NOT NULL"; // Changed to "Products"
+                    WHERE CustomerId = @UserId AND ReservedUntil IS NOT NULL";
 
             try
             {
@@ -67,7 +63,6 @@ public class ProductRepository : IProductRepository
             }
             catch (SqlException ex)
             {
-                // Log the error or handle it
                 throw new Exception("Database error occurred while retrieving reserved products", ex);
             }
         }
@@ -76,20 +71,19 @@ public class ProductRepository : IProductRepository
     // Bulk updates the products' SoldUntil and resets ReservedUntil
     public async Task BulkUpdateProductsAsync(List<ProductEntity> products)
     {
-        using (var connection = new SqlConnection(_connectionString))
+        using (var connection = new SqlConnection(_productDbConnectionString))
         {
             await connection.OpenAsync();
             using (var transaction = await connection.BeginTransactionAsync())
             {
                 foreach (var product in products)
                 {
-                    // Ensure the schema is specified if necessary (e.g., dbo)
                     string sql = @"
                             UPDATE dbo.Products
                             SET SoldUntil = @SoldUntil,
                                 ReservedUntil = NULL,
                                 CustomerId = @CustomerId
-                            WHERE Id = @Id"; // Changed to "Products"
+                            WHERE Id = @Id";
 
                     try
                     {
@@ -102,13 +96,11 @@ public class ProductRepository : IProductRepository
                     }
                     catch (SqlException ex)
                     {
-                        // Log the error or handle it, and possibly rollback the transaction
                         await transaction.RollbackAsync();
                         throw new Exception("Database error occurred during bulk update", ex);
                     }
                 }
 
-                // Commit the transaction if all queries were successful
                 await transaction.CommitAsync();
             }
         }
@@ -116,43 +108,41 @@ public class ProductRepository : IProductRepository
 
     public async Task ProductSoldAsync(Guid customerId)
     {
-        using var connection = new SqlConnection(_connectionString);
+        using var connection = new SqlConnection(_productDbConnectionString);
 
-        // Time Zone adjustment for SoldUntil
         var soldUntilTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm")).AddDays(30);
 
         string sql = @"
-            UPDATE Products
-            SET ReservedUntil = NULL, SoldUntil = @SoldUntil
-            WHERE CustomerId = @CustomerId";
+        UPDATE Products
+        SET ReservedUntil = NULL, SoldUntil = @SoldUntil
+        WHERE CustomerId = @CustomerId AND ReservedUntil IS NOT NULL";
 
         var parameters = new DynamicParameters();
         parameters.Add("SoldUntil", soldUntilTime);
         parameters.Add("CustomerId", customerId);
 
-        // Execute the SQL command
         await connection.ExecuteAsync(sql, parameters);
     }
+
     public async Task<List<Guid>> GetProductIdsForReservationAsync(ProductReserveRequest filters, List<string> rawBusinessTypes)
     {
-        // Validate quantity
         if (filters.QuantityOfFiltered <= 0)
         {
             _logger.LogWarning("Invalid quantity of products to reserve: {Quantity}", filters.QuantityOfFiltered);
             return new List<Guid>();
         }
 
-        // Build the base SQL query with filters dynamically
-        var sql = @"
-            SELECT TOP (@Quantity) p.ProductId
-            FROM Products p
-            WHERE (p.SoldUntil IS NULL AND p.ReservedUntil IS NULL) 
-            AND LEFT(p.BusinessType, CHARINDEX('.', p.BusinessType + '.') - 1) IN @BusinessTypes";
-
         var parameters = new DynamicParameters();
         parameters.Add("Quantity", filters.QuantityOfFiltered);
+        parameters.Add("@NowStockholm", _stockholmTime);
 
-        // Add the rawBusinessTypes filter if provided
+
+        var sql = @"
+        SELECT TOP (@Quantity) p.ProductId
+        FROM Products p
+        WHERE (p.SoldUntil IS NULL OR p.SoldUntil < @NowStockholm)
+          AND p.ReservedUntil IS NULL";
+
         if (rawBusinessTypes?.Any() == true)
         {
             sql += " AND LEFT(p.BusinessType, CHARINDEX('.', p.BusinessType + '.') - 1) IN @BusinessTypes";
@@ -184,21 +174,18 @@ public class ProductRepository : IProductRepository
             parameters.Add("MinNumberOfEmployees", filters.MinNumberOfEmployees);
         }
 
-        // Log the generated SQL query and parameters for debugging
         _logger.LogInformation("Generated SQL Query: {SqlQuery}", sql);
         _logger.LogInformation("Query Parameters: Quantity = {Quantity}, BusinessTypes = {BusinessTypes}, Cities = {Cities}, PostalCodes = {PostalCodes}, MinRevenue = {MinRevenue}, MinEmployees = {MinEmployees}",
                                filters.QuantityOfFiltered, string.Join(", ", rawBusinessTypes), string.Join(", ", filters.Cities ?? new List<string>()),
                                string.Join(", ", filters.PostalCodes ?? new List<string>()), filters.MinRevenue, filters.MinNumberOfEmployees);
 
-        // Randomize the order before selecting TOP (@Quantity)
         sql += " ORDER BY NEWID()";
 
-        using var connection = new SqlConnection(_connectionString);
+        using var connection = new SqlConnection(_productDbConnectionString);
         try
         {
             var productIds = (await connection.QueryAsync<Guid>(sql, parameters)).ToList();
 
-            // Log the fetched product IDs
             if (productIds.Any())
             {
                 _logger.LogInformation("Found {ProductCount} product IDs for reservation.", productIds.Count);
@@ -218,6 +205,7 @@ public class ProductRepository : IProductRepository
         }
     }
 
+
     public async Task<IEnumerable<ProductEntity>> GetProductsByCustomerIdAsync(Guid customerId)
     {
         return await _productDbContext.Products
@@ -225,7 +213,6 @@ public class ProductRepository : IProductRepository
             .ToListAsync();
     }
 
-    // Update product entity
     public async Task UpdateProductAsync(ProductEntity product)
     {
         _productDbContext.Products.Update(product);
@@ -233,77 +220,112 @@ public class ProductRepository : IProductRepository
     }
 
     #region Reserving for Productstable
-    // This part communicates with products table
-    public async Task ReserveProductsByIdsAsync(List<Guid> productIds, Guid companyId)
+
+    public async Task ReserveProductsByIdsAsync(List<Guid> productIds, Guid userId)
     {
+        _logger.LogInformation("Starting ReserveProductsByIdsAsync...");
+
+        if (productIds == null || !productIds.Any())
+        {
+            _logger.LogWarning("No product IDs provided. Skipping reservation.");
+            return;
+        }
+
+        var reservedUntil = TimeZoneInfo
+            .ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"))
+            .AddMinutes(15);
+
+        _logger.LogInformation("Reserving products for user: {UserId}", userId);
+        _logger.LogInformation("Products to reserve: {@ProductIds}", productIds);
+        _logger.LogInformation("ReservedUntil set to: {ReservedUntil}", reservedUntil);
+
         var sql = @"
         UPDATE Products
-        SET CustomerId = @CompanyId, ReservedUntil = @ReservedUntil
+        SET CustomerId = @CustomerId, ReservedUntil = @ReservedUntil
         WHERE ProductId IN @ProductIds";
 
         var parameters = new DynamicParameters();
-        parameters.Add("CompanyId", companyId);
-        parameters.Add("ReservedUntil", TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm")).AddMinutes(15));
-        parameters.Add("ProductIds", productIds); // Pass the list of GUIDs directly
+        parameters.Add("CustomerId", userId);
+        parameters.Add("ReservedUntil", reservedUntil);
+        parameters.Add("ProductIds", productIds);
 
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(sql, parameters);
+        try
+        {
+            using var connection = new SqlConnection(_productDbConnectionString);
+            var rowsAffected = await connection.ExecuteAsync(sql, parameters);
+
+            _logger.LogInformation("Rows affected: {RowsAffected}", rowsAffected);
+
+            if (rowsAffected == 0)
+            {
+                _logger.LogWarning("No rows were updated. Make sure product IDs exist and match.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while reserving products.");
+            throw;
+        }
+
+        _logger.LogInformation("Finished ReserveProductsByIdsAsync.");
     }
 
 
     public async Task DeleteExpiredReservationsAsync(ProductDbContext context, DateTime timeCheckUntil, DateTime timeCheckFrom)
     {
-        using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync();
-        using var transaction = await connection.BeginTransactionAsync();
+        // First DB connection for Products
+        using var productConnection = new SqlConnection(_productDbConnectionString);
+        await productConnection.OpenAsync();
+        using var productTransaction = await productConnection.BeginTransactionAsync();
 
         try
         {
-            // Update expired products
             string updateProductsSql = @"
-            UPDATE Products
-            SET ReservedUntil = NULL, CustomerId = NULL
-            WHERE ReservedUntil < @TimeCheckUntil";
+        UPDATE [dbo].[Products]
+        SET ReservedUntil = NULL, CustomerId = NULL
+        WHERE ReservedUntil < @TimeCheckUntil";
 
-            int rowsAffected = await connection.ExecuteAsync(updateProductsSql, new { TimeCheckUntil = timeCheckUntil }, transaction);
+            int rowsAffected = await productConnection.ExecuteAsync(updateProductsSql, new { TimeCheckUntil = timeCheckUntil }, productTransaction);
 
-            // Check if any rows were updated
-            if (rowsAffected == 0)
-            {
-                Console.WriteLine("No expired products were updated.");
-            }
+            await productTransaction.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await productTransaction.RollbackAsync();
+            Console.WriteLine($"Product DB Error: {ex.Message}");
+            throw;
+        }
 
+        // Second DB connection for Reservations
+        using var reservationConnection = new SqlConnection(_reservationDbConnectionString);
+        await reservationConnection.OpenAsync();
 
-            // Delete expired reservations for the given company
+        try
+        {
             string deleteReservationsSql = @"
-            DELETE FROM Reservations
-            WHERE ReservedFrom < @TimeCheckFrom";
+        DELETE FROM [dbo].[Reservations]
+        WHERE ReservedFrom < @TimeCheckFrom";
 
-            int deletedRows = await connection.ExecuteAsync(deleteReservationsSql, new { TimeCheckFrom = timeCheckFrom }, transaction);
+            int deletedRows = await reservationConnection.ExecuteAsync(deleteReservationsSql, new { TimeCheckFrom = timeCheckFrom });
 
-            // Optionally, check if any reservations were deleted
             if (deletedRows == 0)
             {
                 Console.WriteLine("No expired reservations were deleted.");
             }
-
-            // Commit the transaction
-            await transaction.CommitAsync();
         }
         catch (Exception ex)
         {
-            // Rollback the transaction in case of an error
-            await transaction.RollbackAsync();
-            Console.WriteLine($"Error: {ex.Message}");
+            Console.WriteLine($"Reservation DB Error: {ex.Message}");
             throw;
         }
     }
+
 
     public async Task RemoveReservationsAsync(Guid companyId)
     {
         try
         {
-            using var connection = new SqlConnection(_connectionString);
+            using var connection = new SqlConnection(_productDbConnectionString);
 
             string sql = @"
                 UPDATE Products
@@ -312,7 +334,6 @@ public class ProductRepository : IProductRepository
 
             var parameters = new { CompanyId = companyId };
 
-            // Execute the update query
             await connection.ExecuteAsync(sql, parameters);
         }
         catch (Exception ex)

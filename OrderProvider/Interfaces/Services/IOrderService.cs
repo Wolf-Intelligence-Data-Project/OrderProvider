@@ -1,16 +1,16 @@
 ﻿using OrderProvider.Entities;
-using OrderProvider.Models.DTOs;
 using OrderProvider.Models.Requests;
 
-namespace OrderProvider.Interfaces.Services
-{
-    public interface IOrderService
-    {
-        //Task<ReservationDto> GetReservationAsync(OrderRequest orderRequest);
-        Task CreateOrderAsync(OrderRequest orderRequest);
-        Task<List<OrderEntity>> GetUserOrderHistoryAsync(Guid userId);
-        Task<List<OrderEntity>> GetAllOrderHistoryAsync();
+namespace OrderProvider.Interfaces.Services;
 
-        Task RevertOrderAsync(Guid CustomerId, Guid OrderId);
-    }
+public interface IOrderService
+{
+    Task<OrderEntity> CreateOrderAsync(PaymentRequest paymentRequest);
+
+    Task<List<OrderEntity>> GetUserOrderHistoryAsync();
+    Task<List<OrderEntity>> GetAllOrderHistoryAsync();
+
+    Task RevertOrderAsync(Guid CustomerId, Guid OrderId);
+
+    Task<bool> UpdatePaymentStatusAsync(string orderId, string paymentStatus, string transactionId);
 }

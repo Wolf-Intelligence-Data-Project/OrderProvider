@@ -9,12 +9,12 @@ public interface IProductRepository
     Task<ReservationEntity> GetReservationByIdAsync(Guid reservationId);
     Task<List<ProductEntity>> GetReservedProductsByUserIdAsync(Guid userId);
     Task BulkUpdateProductsAsync(List<ProductEntity> products);
-    Task ProductSoldAsync(Guid companyId);
+    Task ProductSoldAsync(Guid userId);
     Task<List<Guid>> GetProductIdsForReservationAsync(ProductReserveRequest filters, List<string> rawBusinessTypes);
 
-    Task ReserveProductsByIdsAsync(List<Guid> productIds, Guid companyId);
+    Task ReserveProductsByIdsAsync(List<Guid> productIds, Guid userId);
     Task DeleteExpiredReservationsAsync(ProductDbContext context, DateTime timeCheckUntil, DateTime timeCheckFrom);
-    Task RemoveReservationsAsync(Guid companyId);
+    Task RemoveReservationsAsync(Guid userId);
 
     Task<IEnumerable<ProductEntity>> GetProductsByCustomerIdAsync(Guid customerId);
     Task UpdateProductAsync(ProductEntity product);

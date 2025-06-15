@@ -24,36 +24,95 @@ namespace OrderProvider.Migrations
 
             modelBuilder.Entity("OrderProvider.Entities.OrderEntity", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("OrderId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("FiltersUsed")
+                    b.Property<string>("CustomerEmail")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("FiltersUsed")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("KlarnaPaymentId")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PaymentStatus")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal>("PricePerProductAtPurchase")
-                        .HasColumnType("decimal(18, 2)");
+                    b.Property<decimal>("PricePerProduct")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalPrice")
-                        .HasColumnType("decimal(18, 2)");
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<decimal>("TotalPriceWithoutVat")
+                        .HasColumnType("decimal(18,2)");
 
-                    b.HasKey("Id");
+                    b.HasKey("OrderId");
 
                     b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("OrderProvider.Entities.ReservationEntity", b =>
+                {
+                    b.Property<Guid>("ReservationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BusinessTypes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Cities")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CitiesByRegion")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("MaxNumberOfEmployees")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MaxRevenue")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MinNumberOfEmployees")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MinRevenue")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PostalCodes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Regions")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("ReservedFrom")
+                        .HasColumnType("datetime");
+
+                    b.Property<DateTime?>("SoldFrom")
+                        .HasColumnType("datetime");
+
+                    b.HasKey("ReservationId");
+
+                    b.ToTable("Reservations", (string)null);
                 });
 #pragma warning restore 612, 618
         }
